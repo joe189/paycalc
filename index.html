@@ -1,0 +1,886 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PayCalc V1</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 18px; max-width: 1100px; }
+    h1 { margin: 0 0 12px 0; font-size: 22px; }
+    h2 { margin: 18px 0 8px 0; font-size: 16px; }
+
+    .box { border: 1px solid #ddd; padding: 12px; border-radius: 8px; margin-bottom: 12px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 220px;
+      align-self: flex-start;
+    }
+
+    label { font-size: 12px; color: #333; }
+    input, select, textarea { padding: 8px; font-size: 14px; }
+    textarea { width: 100%; }
+
+    .small { font-size: 12px; color: #555; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .btn { padding: 10px 12px; cursor: pointer; border: 1px solid #ccc; background: #f7f7f7; border-radius: 8px; }
+    .btn:active { transform: translateY(1px); }
+    .warn { color: #8a2d0b; font-weight: 600; }
+    .ok { color: #0b6b2a; font-weight: 600; }
+
+    .tabs { display: inline-flex; border: 1px solid #ccc; border-radius: 10px; overflow: hidden; }
+    .tab { padding: 10px 14px; background: #f7f7f7; border: 0; cursor: pointer; }
+    .tab + .tab { border-left: 1px solid #ccc; }
+    .tab.active { background: #e9e9e9; font-weight: 700; }
+
+    /* Alignment fix: reserve consistent space under every field */
+    .hint {
+      min-height: 28px;        /* reserve space for 2 short lines */
+      line-height: 14px;
+      font-size: 12px;
+      color: #555;
+      margin-top: 0;
+    }
+
+    .hint.warn { color: #8a2d0b; font-weight: 600; }
+    .hint.ok { color: #0b6b2a; font-weight: 600; }
+
+    .spacer8 { height: 8px; }
+  </style>
+</head>
+<body>
+  <h1>PayCalc V1</h1>
+
+  <div class="box">
+    <div class="row">
+      <div class="field" style="min-width:520px;">
+        <label>GSA Master file</label>
+        <div class="small">
+          Download:
+          <a href="https://www.gsa.gov/system/files/FY2026_PerDiemMasterRatesFile.xlsx" target="_blank" rel="noopener noreferrer">
+            FY2026 Per Diem Master Rates File
+          </a>
+          <br>
+          Convert the Master sheet to CSV and upload here:
+        </div>
+        <input id="gsaFile" type="file" accept=".csv,text/csv">
+        <div id="gsaStatus" class="hint warn">GSA not loaded. Using standard CONUS fallback (Lodging 110, Meals 68).</div>
+      </div>
+
+      <div class="field">
+        <label>Fiscal year for GSA review link</label>
+        <input id="gsaFY" type="number" min="2020" step="1" value="2026">
+        <div class="hint"></div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Assignment details</h2>
+  <div class="box">
+    <div class="row">
+      <div class="field">
+        <label>JobID</label>
+        <input id="jobId" type="text" placeholder="12345">
+        <div class="hint"></div>
+      </div>
+
+      <div class="field">
+        <label>Contractor Name</label>
+        <input id="contractorName" type="text" placeholder="Jane Doe">
+        <div class="hint"></div>
+      </div>
+
+      <div class="field">
+        <label>Job Title</label>
+        <input id="jobTitle" type="text" placeholder="CT Technologist">
+        <div class="hint"></div>
+      </div>
+
+      <div class="field">
+        <label>Facility</label>
+        <input id="facilityName" type="text" placeholder="Ohio State University Wexner Medical Center">
+        <div class="hint"></div>
+      </div>
+
+      <div class="field">
+        <label>State</label>
+        <select id="facilityState"></select>
+        <div class="hint"></div>
+      </div>
+
+      <div class="field">
+        <label>City</label>
+        <input id="facilityCity" type="text" placeholder="Columbus" list="destList">
+        <datalist id="destList"></datalist>
+        <div id="gsaPicked" class="hint warn">GSA uses City and State. Pick the autocomplete suggestion when possible.</div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <div class="field">
+        <label>Start Date</label>
+        <input id="startDate" type="date">
+        <div class="hint"></div>
+      </div>
+
+      <div class="field">
+        <label>End Date</label>
+        <input id="endDate" type="date">
+        <div class="hint"></div>
+      </div>
+
+      <div class="field">
+        <label>Weeks</label>
+        <input id="durationWeeks" type="number" min="1" step="1" value="13">
+        <div class="hint"></div>
+      </div>
+
+      <div class="field">
+        <label>Schedule</label>
+        <select id="schedule">
+          <option value="3x12">3x12</option>
+          <option value="4x10" selected>4x10</option>
+          <option value="5x8">5x8</option>
+          <option value="4x12">4x12</option>
+        </select>
+        <div class="hint">Schedule sets Hours per Week automatically.</div>
+      </div>
+
+      <div class="field">
+        <label>Shift</label>
+        <select id="shift">
+          <option value="Days">Days</option>
+          <option value="Evenings">Evenings</option>
+          <option value="Nights">Nights</option>
+          <option value="Rotating">Rotating</option>
+          <option value="Variable">Variable</option>
+          <option value="Other">Other</option>
+        </select>
+        <div class="hint"></div>
+      </div>
+
+      <div class="field">
+        <label>Travel or Local</label>
+        <div class="tabs" role="tablist" aria-label="Pay type">
+          <button class="tab active" id="tabTravel" type="button" role="tab" aria-selected="true">Travel</button>
+          <button class="tab" id="tabLocal" type="button" role="tab" aria-selected="false">Local</button>
+        </div>
+        <input id="payType" type="hidden" value="TRAVEL">
+        <div class="hint" id="payTypeHint">Travel uses stipend. Local is 100 percent taxable.</div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Rates and live calculator</h2>
+  <div class="box grid">
+    <div class="box">
+      <div class="row">
+        <div class="field">
+          <label>Bill Rate (hourly)</label>
+          <input id="billRate" type="number" min="0" step="0.01" value="0">
+          <div class="hint"></div>
+        </div>
+
+        <div class="field">
+          <label>Hours per Week</label>
+          <input id="hoursPerWeek" type="number" min="0" step="1" value="40">
+          <div class="hint"></div>
+        </div>
+
+        <div class="field">
+          <label>On Call Bill Rate (hourly)</label>
+          <input id="onCallBillRate" type="number" min="0" step="0.01" value="0">
+          <div class="hint"></div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <div class="field" style="min-width:360px;">
+          <label>Margin per Hour (default 22)</label>
+          <input id="marginPerHour" type="number" min="0" step="1" value="22">
+          <input id="marginSlider" type="range" min="0" max="60" step="1" value="22">
+          <div class="hint"></div>
+        </div>
+
+        <div class="field" style="min-width:360px;">
+          <label>GSA one line</label>
+          <div id="gsaOneLine" class="hint"></div>
+          <div class="hint"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="box">
+      <div class="small">Outputs</div>
+      <div class="spacer8"></div>
+      <div class="small">Weekly Gross: <span id="outWeeklyGross" class="ok"></span></div>
+      <div class="small">Taxable Hourly: <span id="outTaxableHourly" class="ok"></span></div>
+      <div class="small">OT Hourly: <span id="outOtHourly" class="ok"></span></div>
+      <div class="small">Non Tax Weekly Stipend: <span id="outStipend" class="ok"></span></div>
+      <div class="small">On Call Pay Rate: <span id="outOnCallPay" class="ok"></span></div>
+      <div class="spacer8"></div>
+      <div class="small">Margin per Hour: <span id="outMargin" class="ok"></span></div>
+      <div class="small">Weekly Gross Profit: <span id="outWeeklyGp" class="ok"></span></div>
+      <div class="small">Monthly Gross Profit: <span id="outMonthlyGp" class="ok"></span></div>
+      <div class="small">Total Gross Profit: <span id="outTotalGp" class="ok"></span></div>
+      <div id="stipendNote" class="hint warn" style="margin-top:10px;"></div>
+    </div>
+  </div>
+
+  <h2>Copy blocks</h2>
+  <div class="box grid">
+    <div class="box">
+      <div class="row" style="justify-content: space-between; align-items:center;">
+        <div><b>Approval Email block</b> <span class="small">(copy paste into Outlook)</span></div>
+        <button class="btn" id="copyApproval" type="button">Copy</button>
+      </div>
+      <textarea id="approvalBlock" class="mono" rows="24"></textarea>
+    </div>
+
+    <div class="box">
+      <div class="row" style="justify-content: space-between; align-items:center;">
+        <div><b>Contract Insert block</b> <span class="small">(paste into Word)</span></div>
+        <button class="btn" id="copyContract" type="button">Copy</button>
+      </div>
+      <textarea id="contractBlock" class="mono" rows="22"></textarea>
+    </div>
+  </div>
+
+<script>
+(function () {
+  const STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"];
+  const el = (id) => document.getElementById(id);
+
+  const facilityState = el("facilityState");
+  STATES.forEach(s => {
+    const o = document.createElement("option");
+    o.value = s; o.textContent = s;
+    facilityState.appendChild(o);
+  });
+  facilityState.value = "OH";
+
+  const destList = el("destList");
+  const gsaPicked = el("gsaPicked");
+  const gsaStatus = el("gsaStatus");
+
+  const CONUS = { lodging: 110, mie: 68 };
+
+  let gsaRows = [];
+  let indexByState = new Map();
+  let uniqueDestByState = new Map();
+  let selectedGsa = null;
+
+  function norm(s) {
+    if (!s) return "";
+    return String(s)
+      .toUpperCase()
+      .trim()
+      .replace(/[.,]/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/\bSAINT\b/g, "ST")
+      .replace(/\bFORT\b/g, "FT")
+      .replace(/\bMOUNT\b/g, "MT");
+  }
+
+  function fmtNumberSmart(n) {
+    if (!isFinite(n)) return "";
+    const rounded = Math.round(n * 100) / 100;
+    const isInt = Math.abs(rounded - Math.round(rounded)) < 1e-9;
+    return rounded.toLocaleString(undefined, {
+      minimumFractionDigits: isInt ? 0 : 1,
+      maximumFractionDigits: 2
+    });
+  }
+
+  function moneySmart(n) {
+    if (!isFinite(n)) return "";
+    return "$" + fmtNumberSmart(n);
+  }
+
+  function floorDollars(n) {
+    if (!isFinite(n)) return 0;
+    return Math.floor(n);
+  }
+
+  function formatDateMDY(dateStr) {
+    if (!dateStr) return "";
+    const d = new Date(dateStr + "T00:00:00");
+    if (isNaN(d.getTime())) return dateStr;
+    const m = d.getMonth() + 1;
+    const day = d.getDate();
+    const y = d.getFullYear();
+    return m + "/" + day + "/" + y;
+  }
+
+  function addDays(dateStr, days) {
+    if (!dateStr) return "";
+    const d = new Date(dateStr + "T00:00:00");
+    if (isNaN(d.getTime())) return "";
+    d.setDate(d.getDate() + days);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return y + "-" + m + "-" + day;
+  }
+
+  function diffDays(startStr, endStr) {
+    if (!startStr || !endStr) return NaN;
+    const s = new Date(startStr + "T00:00:00");
+    const e = new Date(endStr + "T00:00:00");
+    if (isNaN(s.getTime()) || isNaN(e.getTime())) return NaN;
+    const ms = e.getTime() - s.getTime();
+    return Math.round(ms / (1000 * 60 * 60 * 24));
+  }
+
+  function computeWeeksRounded(startStr, endStr) {
+    const d = diffDays(startStr, endStr);
+    if (!isFinite(d) || d < 0) return 0;
+    return Math.max(1, Math.round((d + 2) / 7));
+  }
+
+  function computeEndFromWeeks(startStr, weeks) {
+    if (!startStr || !isFinite(weeks) || weeks <= 0) return "";
+    const daysToAdd = (weeks * 7) - 2;
+    return addDays(startStr, daysToAdd);
+  }
+
+  let syncingDates = false;
+
+  function syncDatesFromWeeks() {
+    if (syncingDates) return;
+    const s = el("startDate").value;
+    const w = parseInt(el("durationWeeks").value || "0", 10);
+    if (!s || !isFinite(w) || w <= 0) return;
+    syncingDates = true;
+    el("endDate").value = computeEndFromWeeks(s, w);
+    syncingDates = false;
+  }
+
+  function syncDatesFromEnd() {
+    if (syncingDates) return;
+    const s = el("startDate").value;
+    const e = el("endDate").value;
+    if (!s || !e) return;
+    const w = computeWeeksRounded(s, e);
+    if (!w) return;
+    syncingDates = true;
+    el("durationWeeks").value = String(w);
+    syncingDates = false;
+  }
+
+  function syncDatesFromStartPreferWeeks() {
+    const s = el("startDate").value;
+    if (!s) return;
+    const w = parseInt(el("durationWeeks").value || "0", 10);
+    const e = el("endDate").value;
+
+    if (isFinite(w) && w > 0) {
+      syncDatesFromWeeks();
+      return;
+    }
+    if (e) {
+      syncDatesFromEnd();
+      return;
+    }
+  }
+
+  function scheduleToHours(s) {
+    if (s === "3x12") return 36;
+    if (s === "4x10") return 40;
+    if (s === "5x8") return 40;
+    if (s === "4x12") return 48;
+    return 40;
+  }
+
+  function parseCsv(text) {
+    const rows = [];
+    let i = 0, field = "", row = [], inQuotes = false;
+    while (i < text.length) {
+      const c = text[i];
+      if (c === '"') {
+        if (inQuotes && text[i+1] === '"') { field += '"'; i += 2; continue; }
+        inQuotes = !inQuotes; i++; continue;
+      }
+      if (!inQuotes && (c === "," || c === "\n" || c === "\r")) {
+        row.push(field); field = "";
+        if (c !== ",") {
+          if (row.length > 1 || row[0] !== "") rows.push(row);
+          row = [];
+          if (c === "\r" && text[i+1] === "\n") i++;
+        }
+        i++; continue;
+      }
+      field += c; i++;
+    }
+    row.push(field);
+    if (row.length > 1 || row[0] !== "") rows.push(row);
+    return rows;
+  }
+
+  function monthNum(name) {
+    const m = {
+      JANUARY:1, FEBRUARY:2, MARCH:3, APRIL:4, MAY:5, JUNE:6,
+      JULY:7, AUGUST:8, SEPTEMBER:9, OCTOBER:10, NOVEMBER:11, DECEMBER:12
+    };
+    return m[norm(name)];
+  }
+
+  function parseMonthDay(s) {
+    if (!s) return null;
+    const parts = String(s).trim().split(/\s+/);
+    if (parts.length < 2) return null;
+    const mn = monthNum(parts[0]);
+    const d = parseInt(parts[1], 10);
+    if (!mn || !d) return null;
+    return { m: mn, d, key: mn * 100 + d };
+  }
+
+  function inSeason(startDate, beginStr, endStr) {
+    const b = parseMonthDay(beginStr);
+    const e = parseMonthDay(endStr);
+    if (!b || !e) return true;
+    const sd = new Date(startDate);
+    if (isNaN(sd.getTime())) return true;
+    const k = (sd.getMonth() + 1) * 100 + sd.getDate();
+    if (b.key <= e.key) return (k >= b.key && k <= e.key);
+    return (k >= b.key || k <= e.key);
+  }
+
+  function buildIndex(rows) {
+    indexByState = new Map();
+    uniqueDestByState = new Map();
+    for (const r of rows) {
+      if (!r.state) continue;
+      if (!indexByState.has(r.state)) indexByState.set(r.state, []);
+      indexByState.get(r.state).push(r);
+
+      if (!uniqueDestByState.has(r.state)) uniqueDestByState.set(r.state, new Set());
+      uniqueDestByState.get(r.state).add(r.dest);
+    }
+  }
+
+  function loadDestinationsForState(state) {
+    destList.innerHTML = "";
+    const set = uniqueDestByState.get(state);
+    if (!set) return;
+    const arr = Array.from(set).sort();
+    for (const d of arr) {
+      const opt = document.createElement("option");
+      opt.value = d;
+      destList.appendChild(opt);
+    }
+  }
+
+  function pickBestGsaRow() {
+    const state = facilityState.value;
+    const dest = el("facilityCity").value;
+    const start = el("startDate").value;
+
+    if (!gsaRows.length) {
+      selectedGsa = { lodging: CONUS.lodging, mie: CONUS.mie, dest: "STANDARD", state: "CONUS" };
+      gsaPicked.textContent = "GSA not loaded. Using standard CONUS fallback.";
+      gsaPicked.className = "hint warn";
+      return;
+    }
+
+    const rows = indexByState.get(state) || [];
+    const destN = norm(dest);
+    const matches = rows.filter(r => norm(r.dest) === destN);
+
+    if (!matches.length) {
+      selectedGsa = { lodging: CONUS.lodging, mie: CONUS.mie, dest: "STANDARD", state: "CONUS" };
+      gsaPicked.textContent = "No exact city match in GSA for this state. Using standard CONUS fallback. Pick from autocomplete for best results.";
+      gsaPicked.className = "hint warn";
+      return;
+    }
+
+    const seasonal = matches.filter(m => inSeason(start, m.seasonBegin, m.seasonEnd));
+    const pick = seasonal[0] || matches[0];
+
+    selectedGsa = pick;
+    gsaPicked.textContent = "GSA matched: " + pick.dest + ", " + pick.state;
+    gsaPicked.className = "hint ok";
+  }
+
+  function section(title, lines) {
+    return title + "\n\n" + lines.join("\n") + "\n";
+  }
+
+  function buildApprovalEmail(x) {
+    return (
+      section("ASSIGNMENT DETAILS", [
+        "JobID: " + (x.jobId || "{JOBID}"),
+        "Job Title: " + x.jobTitle,
+        "Facility: " + x.facilityName,
+        "Location: " + (x.facilityCity + ", " + x.facilityState),
+        "Start Date: " + formatDateMDY(x.startDate),
+        "End Date: " + formatDateMDY(x.endDate),
+        "Assignment Length: " + x.assignmentWeeks + " weeks",
+        "Schedule: " + x.schedule,
+        "Hours per Week: " + fmtNumberSmart(x.hours),
+        "Shift: " + x.shift
+      ]) + "\n" +
+
+      section("JOB INPUTS", [
+        "Bill Rate: " + moneySmart(x.billRate),
+        "Hours per Week: " + fmtNumberSmart(x.hours),
+        "On Call Bill Rate: " + moneySmart(x.onCallBillRate),
+        "Margin per Hour: " + moneySmart(x.marginPerHour)
+      ]) + "\n" +
+
+      section("GSA", [
+        "Lodging: " + moneySmart(x.lodging),
+        "Meals: " + moneySmart(x.mie),
+        "Stipend Max: (" + fmtNumberSmart(x.lodging) + " + " + fmtNumberSmart(x.mie) + ") x 7 minus 20 = " + moneySmart(x.stipendTarget),
+        "Review GSA: " + x.gsaUrl
+      ]) + "\n" +
+
+      section("PAY PACKAGE", [
+        "Weekly Gross Pay: " + moneySmart(x.weeklyGross),
+        "Taxable Hourly Rate: " + moneySmart(x.taxableHourly),
+        "Overtime Rate: " + moneySmart(x.otHourly),
+        "Non Tax Weekly Stipend: " + moneySmart(x.stipendApplied),
+        "On Call Pay Rate: " + moneySmart(x.onCallPay)
+      ]) + "\n" +
+
+      section("PROFIT", [
+        "Weekly Gross Profit: " + moneySmart(x.weeklyGp),
+        "Monthly Gross Profit: " + moneySmart(x.monthlyGp),
+        "Total Gross Profit: " + moneySmart(x.totalGp) + " (" + x.assignmentWeeks + " weeks)"
+      ]).trim() + "\n"
+    );
+  }
+
+  function buildContractInsert(x) {
+    return (
+      section("ASSIGNMENT DETAILS", [
+        "Job Title: " + x.jobTitle,
+        "Facility: " + x.facilityName,
+        "Location: " + (x.facilityCity + ", " + x.facilityState),
+        "Start Date: " + formatDateMDY(x.startDate),
+        "End Date: " + formatDateMDY(x.endDate),
+        "Assignment Length: " + x.assignmentWeeks + " weeks",
+        "Schedule: " + x.schedule,
+        "Hours per Week: " + fmtNumberSmart(x.hours),
+        "Shift: " + x.shift
+      ]) + "\n" +
+
+      section("COMPENSATION", [
+        "Weekly Gross Pay: " + moneySmart(x.weeklyGross),
+        "Taxable Hourly Rate: " + moneySmart(x.taxableHourly),
+        "Overtime Rate: " + moneySmart(x.otHourly),
+        "Non Tax Weekly Stipend: " + moneySmart(x.stipendApplied),
+        "On Call Pay Rate: " + moneySmart(x.onCallPay)
+      ]).trim() + "\n"
+    );
+  }
+
+  /* Requested update: URL must include fiscal_year, state, and city */
+  function buildGsaUrl(fy, state, city) {
+    const fyEnc = encodeURIComponent(String(fy));
+    const stEnc = encodeURIComponent(String(state || "").trim().toUpperCase());
+    const cityClean = String(city || "").trim().toLowerCase();
+    const cityEnc = encodeURIComponent(cityClean);
+    return "https://www.gsa.gov/travel/plan-book/per-diem-rates/per-diem-rates-results" +
+      "?action=perdiems_report" +
+      "&fiscal_year=" + fyEnc +
+      "&state=" + stEnc +
+      "&city=" + cityEnc +
+      "&zip=";
+  }
+
+  function calc() {
+    pickBestGsaRow();
+
+    const BR = parseFloat(el("billRate").value || "0");
+    const H = parseFloat(el("hoursPerWeek").value || "0");
+    const M = parseFloat(el("marginPerHour").value || "0");
+    const onCallBR = parseFloat(el("onCallBillRate").value || "0");
+    const payType = el("payType").value;
+
+    const startStr = el("startDate").value || "";
+    const endStr = el("endDate").value || "";
+    const assignmentWeeks = (startStr && endStr)
+      ? computeWeeksRounded(startStr, endStr)
+      : Math.max(0, parseInt(el("durationWeeks").value || "0", 10));
+
+    const onCallPay = floorDollars(onCallBR * 0.70);
+
+    const lodging = selectedGsa ? parseFloat(selectedGsa.lodging) : CONUS.lodging;
+    const mie = selectedGsa ? parseFloat(selectedGsa.mie) : CONUS.mie;
+
+    const gsaWeeklyMax = (lodging + mie) * 7;
+    const stipendTarget = Math.max(0, gsaWeeklyMax - 20);
+
+    const weeklyPayBudget = (BR - M) * H;
+
+    let stipendApplied = 0;
+    let taxableWeekly = 0;
+    let taxableHourly = 0;
+    let otHourly = 0;
+    let stipendReducedNote = "";
+
+    if (payType === "LOCAL") {
+      stipendApplied = 0;
+      taxableWeekly = weeklyPayBudget;
+      taxableHourly = (H > 0) ? taxableWeekly / H : 0;
+      otHourly = taxableHourly * 1.5;
+    } else {
+      const taxableFloorWeekly = 30 * H;
+      const taxableWeeklyCandidate = weeklyPayBudget - stipendTarget;
+
+      if (taxableWeeklyCandidate >= taxableFloorWeekly) {
+        taxableWeekly = taxableWeeklyCandidate;
+        stipendApplied = stipendTarget;
+      } else {
+        taxableWeekly = taxableFloorWeekly;
+        stipendApplied = weeklyPayBudget - taxableFloorWeekly;
+        if (stipendApplied < 0) stipendApplied = 0;
+        stipendReducedNote = "Stipend reduced to maintain 30 taxable floor.";
+      }
+
+      taxableHourly = (H > 0) ? taxableWeekly / H : 0;
+      if (taxableHourly < 30 && H > 0) {
+        taxableHourly = 30;
+        taxableWeekly = taxableHourly * H;
+        stipendApplied = Math.max(0, weeklyPayBudget - taxableWeekly);
+        stipendReducedNote = "Stipend reduced to maintain 30 taxable floor.";
+      }
+
+      otHourly = taxableHourly * 1.5;
+    }
+
+    const weeklyGross = taxableWeekly + stipendApplied;
+
+    const weeklyGp = M * H;
+    const monthlyGp = weeklyGp * 4.33;
+    const totalGp = weeklyGp * (assignmentWeeks || 0);
+
+    el("outWeeklyGross").textContent = moneySmart(weeklyGross);
+    el("outTaxableHourly").textContent = moneySmart(taxableHourly);
+    el("outOtHourly").textContent = moneySmart(otHourly);
+    el("outStipend").textContent = moneySmart(stipendApplied);
+    el("outOnCallPay").textContent = moneySmart(onCallPay);
+
+    el("outMargin").textContent = moneySmart(M);
+    el("outWeeklyGp").textContent = moneySmart(weeklyGp);
+    el("outMonthlyGp").textContent = moneySmart(monthlyGp);
+    el("outTotalGp").textContent = assignmentWeeks ? moneySmart(totalGp) : "";
+
+    el("stipendNote").textContent = stipendReducedNote;
+
+    el("gsaOneLine").textContent =
+      "GSA stipend max: (" + fmtNumberSmart(lodging) + " + " + fmtNumberSmart(mie) + ") x 7 minus 20 = " + moneySmart(stipendTarget);
+
+    const fy = parseInt(el("gsaFY").value || "2026", 10);
+    const st = facilityState.value;
+    const city = el("facilityCity").value || "";
+    const gsaUrl = buildGsaUrl(fy, st, city);
+
+    el("approvalBlock").value = buildApprovalEmail({
+      jobId: (el("jobId").value || "").trim(),
+      jobTitle: el("jobTitle").value || "",
+      facilityName: el("facilityName").value || "",
+      facilityCity: city,
+      facilityState: st,
+      startDate: startStr,
+      endDate: endStr,
+      assignmentWeeks: assignmentWeeks || 0,
+      schedule: el("schedule").value || "",
+      shift: el("shift").value || "",
+      billRate: BR,
+      hours: H,
+      onCallBillRate: onCallBR,
+      lodging, mie,
+      stipendTarget,
+      weeklyGross, taxableHourly, otHourly,
+      stipendApplied,
+      onCallPay,
+      marginPerHour: M,
+      weeklyGp, monthlyGp, totalGp,
+      gsaUrl
+    });
+
+    el("contractBlock").value = buildContractInsert({
+      jobTitle: el("jobTitle").value || "",
+      facilityName: el("facilityName").value || "",
+      facilityCity: city,
+      facilityState: st,
+      startDate: startStr,
+      endDate: endStr,
+      assignmentWeeks: assignmentWeeks || 0,
+      schedule: el("schedule").value || "",
+      hours: H,
+      shift: el("shift").value || "",
+      weeklyGross, taxableHourly, otHourly,
+      stipendApplied,
+      onCallPay
+    });
+  }
+
+  function attachCopy(btnId, srcId) {
+    el(btnId).addEventListener("click", async () => {
+      const t = el(srcId);
+      t.focus();
+      t.select();
+      try {
+        await navigator.clipboard.writeText(t.value);
+      } catch (e) {
+        document.execCommand("copy");
+      }
+    });
+  }
+
+  function setTab(mode) {
+    el("payType").value = mode;
+
+    const travelActive = (mode === "TRAVEL");
+    el("tabTravel").classList.toggle("active", travelActive);
+    el("tabLocal").classList.toggle("active", !travelActive);
+    el("tabTravel").setAttribute("aria-selected", travelActive ? "true" : "false");
+    el("tabLocal").setAttribute("aria-selected", travelActive ? "false" : "true");
+    el("payTypeHint").textContent = travelActive ? "Travel uses stipend. Local is 100 percent taxable." : "Local is 100 percent taxable. Stipend is zero.";
+
+    calc();
+  }
+
+  function setDefaultDates() {
+    const s = el("startDate").value;
+    if (!s) return;
+    const w = parseInt(el("durationWeeks").value || "13", 10);
+    if (isFinite(w) && w > 0) {
+      el("endDate").value = computeEndFromWeeks(s, w);
+    }
+  }
+
+  el("tabTravel").addEventListener("click", () => setTab("TRAVEL"));
+  el("tabLocal").addEventListener("click", () => setTab("LOCAL"));
+
+  el("schedule").addEventListener("change", () => {
+    el("hoursPerWeek").value = String(scheduleToHours(el("schedule").value));
+    calc();
+  });
+
+  el("startDate").addEventListener("change", () => {
+    syncDatesFromStartPreferWeeks();
+    calc();
+  });
+
+  el("endDate").addEventListener("change", () => {
+    syncDatesFromEnd();
+    calc();
+  });
+
+  el("durationWeeks").addEventListener("change", () => {
+    syncDatesFromWeeks();
+    calc();
+  });
+
+  el("durationWeeks").addEventListener("input", () => {
+    syncDatesFromWeeks();
+    calc();
+  });
+
+  ["jobId","contractorName","jobTitle","facilityName","facilityCity","facilityState","shift",
+   "billRate","hoursPerWeek","onCallBillRate","marginPerHour","gsaFY"].forEach(id => {
+    el(id).addEventListener("input", () => calc());
+    el(id).addEventListener("change", () => {
+      if (id === "facilityState") loadDestinationsForState(facilityState.value);
+      calc();
+    });
+  });
+
+  el("marginSlider").addEventListener("input", (e) => {
+    el("marginPerHour").value = e.target.value;
+    calc();
+  });
+
+  el("marginPerHour").addEventListener("input", (e) => {
+    const v = Math.max(0, Math.min(60, Math.round(parseFloat(e.target.value || "0"))));
+    el("marginSlider").value = String(v);
+    calc();
+  });
+
+  el("gsaFile").addEventListener("change", async (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    const text = await f.text();
+    const rows = parseCsv(text);
+
+    let headerIdx = -1;
+    for (let i = 0; i < Math.min(rows.length, 20); i++) {
+      const r = rows[i].map(x => norm(x));
+      if (r.includes("STATE") && r.includes("DESTINATION") && r.includes("FY26 LODGING RATE")) { headerIdx = i; break; }
+    }
+    if (headerIdx === -1) {
+      gsaStatus.textContent = "Could not find expected headers. Export the Master sheet as CSV.";
+      gsaStatus.className = "hint warn";
+      return;
+    }
+
+    const header = rows[headerIdx].map(x => norm(x));
+    const idx = (name) => header.indexOf(norm(name));
+
+    const iState = idx("STATE");
+    const iDest = idx("DESTINATION");
+    const iBegin = idx("SEASON BEGIN");
+    const iEnd = idx("SEASON END");
+    const iLodging = idx("FY26 LODGING RATE");
+    const iMie = idx("FY26 M&IE");
+
+    const out = [];
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || r.length < 6) continue;
+      const st = (r[iState] || "").trim();
+      const dest = (r[iDest] || "").trim();
+      const lodging = parseFloat((r[iLodging] || "").toString().replace(/[$,]/g,""));
+      const mie = parseFloat((r[iMie] || "").toString().replace(/[$,]/g,""));
+      if (!st || !dest || !isFinite(lodging) || !isFinite(mie)) continue;
+
+      out.push({
+        state: st.toUpperCase(),
+        dest: dest,
+        seasonBegin: (iBegin >= 0 ? (r[iBegin] || "").trim() : ""),
+        seasonEnd: (iEnd >= 0 ? (r[iEnd] || "").trim() : ""),
+        lodging: lodging,
+        mie: mie
+      });
+    }
+
+    gsaRows = out;
+    buildIndex(gsaRows);
+    loadDestinationsForState(facilityState.value);
+
+    gsaStatus.textContent = "GSA loaded: " + gsaRows.length + " rows indexed.";
+    gsaStatus.className = "hint ok";
+
+    calc();
+  });
+
+  attachCopy("copyApproval", "approvalBlock");
+  attachCopy("copyContract", "contractBlock");
+
+  el("hoursPerWeek").value = "40";
+  selectedGsa = { lodging: CONUS.lodging, mie: CONUS.mie, dest: "STANDARD", state: "CONUS" };
+  loadDestinationsForState(facilityState.value);
+
+  setTab("TRAVEL");
+
+  const today = new Date();
+  const y = today.getFullYear();
+  const m = String(today.getMonth() + 1).padStart(2, "0");
+  const d = String(today.getDate()).padStart(2, "0");
+  el("startDate").value = y + "-" + m + "-" + d;
+  setDefaultDates();
+  calc();
+})();
+</script>
+</body>
+</html>
